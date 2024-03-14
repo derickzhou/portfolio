@@ -1,0 +1,951 @@
+﻿<!DOCTYPE HTML>
+<html>
+  	<head>
+    		<title>Derick Hua Xian Zhou - IOTDEVT</title>
+    		<meta charset="utf-8" />
+    		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    		<link rel="stylesheet" href="assets/css/main.css" />
+  	</head>
+	  <body class="bg-gradient-to-r from-pink-300 via-purple-500 to-indigo-600 font-source-sans-pro">
+		    <div class="max-w-7xl mx-auto px-5 py-32">
+			      <div class="flex flex-col items-center pb-32 space-y-5 text-center">
+				        <div class="space-y-2 text-white">
+					          <p class="text-3xl">IoT Development</p>
+					          <p class="text-2xl">Wi-Fi MP3 Music Player with ESP32 NodeMCU Development Board</p>
+				        </div>
+			      </div>
+			      <nav class="bg-gray-100 opacity-95 p-5 sticky text-lg top-0">
+				        <ul class="flex justify-center space-x-10">
+					          <li><a class="font-medium hover:bg-gray-200 p-3 rounded-lg text-blue-500" href="index.html">DERICK HUA XIAN ZHOU</a></li>
+					          <li class="lg:block md:hidden sm:hidden"><a class="hover:bg-gray-200 p-3 rounded-lg" href="#project_description">Project Description</a></li>
+					          <li class="lg:block md:hidden sm:hidden"><a class="hover:bg-gray-200 p-3 rounded-lg" href="#features">Features</a></li>
+					          <li class="lg:block md:hidden sm:hidden"><a class="hover:bg-gray-200 p-3 rounded-lg" href="#pin_configuration">Pin Configuration</a></li>
+					          <li class="lg:block md:hidden sm:hidden"><a class="hover:bg-gray-200 p-3 rounded-lg" href="#arduino_source_code">Source Code</a></li>
+					          <li class="lg:block md:hidden sm:hidden"><a class="hover:bg-gray-200 p-3 rounded-lg" href="#prototype_video">Prototype Video</a></li>
+				        </ul>
+			      </nav>
+			      <div class="bg-white overflow-hidden shadow-sm">
+				        <section class="lg:p-20 md:p-6 sm:p-6 space-y-5" id="project_description">
+					          <p class="text-3xl">PROJECT DESCRIPTION:</p>
+					          <p class="text-xl">This project aims to develop a multifunctional and user-friendly Wi-Fi MP3 music player. By integrating the ESP32 NodeMCU Development Board, Micro SD Card Adapter, MAX98357A Digital to Analog Converter, and Audio Jack Speaker, this device becomes an independent music player capable of providing high-quality audio.</p>
+					          <p class="text-xl">The addition of a web interface enhances user interaction, allowing multiple users to simultaneously connect to the ESP32 Wi-Fi network and access a range of features. Unlike Bluetooth speakers, which typically only allow one user to connect at a time, this Wi-Fi MP3 music player provides an excellent collaborative experience. In addition, the Wi-Fi range exceeds the limits of Bluetooth, allowing users to control playback and manage their music collections from further distances.</p>
+				        </section>
+				        <hr>
+				        <section class="lg:p-20 md:p-6 sm:p-6 space-y-5" id="features">
+					          <p class="text-3xl">FEATURES:</p>
+					          <p class="text-xl">This project allows numerous users to connect to the ESP32 Wi-Fi network and access the web interface. Within the interface, users can upload MP3 files, create and navigate through folders, rename and delete both folders and MP3 files. Furthermore, users have the capability to play, pause, loop music, and adjust the volume of the music.</p>
+				        </section>
+				        <hr>
+				        <section class="lg:p-20 md:p-6 sm:p-6 space-y-5" id="pin_configuration">
+					          <p class="text-3xl">PIN CONFIGURATION:</p>
+					          <a class="flex" href="assets/images/iotdevt/image00.png" data-lightbox="Pin_Configuration" data-title="Pin Configuration">
+						            <img class="border border-gray-100 h-4/5 mx-auto w-4/5" src="assets/images/iotdevt/image00.png" />
+					          </a>
+				        </section>
+				        <hr>
+				        <section class="lg:p-20 md:p-6 sm:p-6 space-y-5" id="arduino_source_code">
+					          <p class="text-3xl">ARDUINO SOURCE CODE:</p>
+					          <div class="bg-gray-100 border border-gray-100 h-screen overflow-x-auto p-4 rounded">
+					  	          <pre><code>
+/*
+  Author: Derick Hua Xian Zhou
+  Date: December 2, 2023
+*/
+
+#define SD_PIN_MISO 27
+#define SD_PIN_MOSI 13
+#define SD_PIN_CLK 14
+#define SD_PIN_CS 15
+#define AUDIO_PIN_DIN 22
+#define AUDIO_PIN_BCLK 26
+#define AUDIO_PIN_LRC 25
+
+#include &lt;vector>
+#include &lt;Arduino.h>
+#include &lt;SPI.h>
+#include &lt;SD.h>
+#include &lt;WiFi.h>
+#include &lt;ESPAsyncWebSrv.h>
+#include &lt;Audio.h>
+
+AsyncWebServer server(80);
+SPIClass hspi(HSPI);
+Audio audio;
+bool audioLoop;
+int audioIndex;
+int audioVolume = 3;
+bool audioRunning;
+std::vector&lt;String> audioFilePaths;
+
+const char *ssid = "WIFI";
+const char *password = "12345678";
+IPAddress local_ip(192,168,1,1);
+IPAddress gateway(192,168,1,1);
+IPAddress subnet(255,255,255,0);
+
+String sanitizePath(String path) {
+  String sanitizedPath = "";
+  bool slashFound = false;
+  for (char c : path) {
+    if (c != '/' || !slashFound) {
+      sanitizedPath += c;
+      slashFound = (c == '/');
+    }
+  }
+  return sanitizedPath;
+}
+
+String removeHost(String url) {
+  return url.substring(url.indexOf('/', 8));
+}
+
+String formatFileSize(uint32_t fileSize) {
+  if (fileSize &lt; 1024) {
+    return String(fileSize) + " B";
+  }
+  else if (fileSize &lt; 1024 * 1024) {
+    return String(fileSize / 1024.0, 1) + " KB";
+  }
+  else if (fileSize &lt; 1024 * 1024 * 1024) {
+    return String(fileSize / (1024.0 * 1024), 2) + " MB";
+  }
+  else {
+    return String(fileSize / (1024.0 * 1024 * 1024), 2) + " GB";
+  }
+}
+
+String encodeSpecialCharacters(String url) {
+  url.replace(" ", "%20");
+  url.replace("}", "%7D");
+  url.replace("{", "%7B");
+  url.replace("`", "%60");
+  url.replace("^", "%5E");
+  return url;
+}
+
+String extractFileName(String fileName) {
+  int lastDotIndex = fileName.lastIndexOf('.');
+  if (lastDotIndex != -1) {
+    return fileName.substring(0, lastDotIndex);
+  }
+  else {
+    return fileName;
+  }
+}
+
+String extractFileExtension(String fileName) {
+  int lastDotIndex = fileName.lastIndexOf('.');
+  if (lastDotIndex != -1) {
+    return fileName.substring(lastDotIndex);
+  }
+  else {
+    return "";
+  }
+}
+
+String toLowerCase(String input) {
+  String lowerCased = "";
+  for (int i = 0; i &lt; input.length(); i++) {
+    lowerCased += char(tolower(input.charAt(i)));
+  }
+  return lowerCased;
+}
+
+void onUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+  if (request->hasParam("folder")) {
+    String folderPath = request->getParam("folder")->value();
+    if (!folderPath.isEmpty() && SD.exists(folderPath) && SD.open(folderPath).isDirectory() && toLowerCase(extractFileExtension(filename)) == ".mp3") {
+      folderPath = sanitizePath(folderPath);
+      if (folderPath != "/") {
+        folderPath = folderPath + "/";
+      }
+      if (!index) {
+        String filePath;
+        String extractedfileName = extractFileName(filename);
+        String extractedfileExtension = extractFileExtension(filename);
+        if (SD.exists(folderPath + extractedfileName + extractedfileExtension) || SD.exists(folderPath + extractedfileName + " UPLOADING" + extractedfileExtension)) {
+          for (int i = 1; i &lt; 1000; i++) {
+            if (!SD.exists(folderPath + extractedfileName + " (" + i + ")" + extractedfileExtension) && !SD.exists(folderPath + extractedfileName + " (" + i + ") UPLOADING" + extractedfileExtension)) {
+              filePath = folderPath + extractedfileName + " (" + i + ") UPLOADING" + extractedfileExtension;
+              break;
+            }
+          }
+        }
+        else {
+          filePath = folderPath + extractedfileName + " UPLOADING" + extractedfileExtension;
+        }
+        File file = SD.open(filePath, FILE_WRITE);
+        if (file) {
+          request->_tempFile = file;
+        }
+      }
+      if (len) {
+        request->_tempFile.write(data, len);
+      }
+      if (final) {
+        String tempFileName = request->_tempFile.name();
+        request->_tempFile.close();
+        int index = tempFileName.lastIndexOf(" UPLOADING");
+        String fileName = tempFileName.substring(0, index) + tempFileName.substring(index + 10);
+        if (SD.exists(folderPath + tempFileName)) {
+          SD.rename(folderPath + tempFileName, folderPath + fileName);
+        }
+        if (!audioFilePaths.empty() && extractFolderPath(audioFilePaths[0]) + "/" == folderPath) {
+          audioFilePaths.push_back(folderPath + fileName);
+        }
+      }
+    }
+  }
+}
+
+bool invalidName(String name) {
+  String invalidChars = "/\\:*?\"&lt;>|+#%;&"; // /, \, :, *, ?, ", &lt;, >, |, +, #, %, ;, and &
+  bool invalidName = false;
+  if (!name.isEmpty() && name[0] != ' ') {
+    for (char c : invalidChars) {
+      if (name.indexOf(c) != -1) {
+        invalidName = true;
+        break;
+      }
+    }
+  }
+  else {
+    invalidName = true;
+  }
+  return invalidName;
+}
+
+void audio_eof_mp3(const char *info) {
+  Serial.println(String(info) + " ENDS");
+  if (!audioLoop) {
+    audioIndex = (audioIndex + 1) % audioFilePaths.size();
+  }
+  audio.connecttoFS(SD, audioFilePaths[audioIndex].c_str());
+}
+
+String extractFolderPath(String path) {
+  return path.substring(0, path.lastIndexOf('/'));
+}
+
+bool isDigits(String input) {
+  bool isDigits = true;
+  if (!input.isEmpty()) {
+    for (char c : input) {
+      if (!isDigit(c)) {
+        isDigits = false;
+        break;
+      }
+    }
+  }
+  else {
+    isDigits = false;
+  }
+  return isDigits;
+}
+
+String extractFileNameWithExtension(String filePath) {
+  return filePath.substring(filePath.lastIndexOf('/') + 1);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  hspi.begin(SD_PIN_CLK, SD_PIN_MISO, SD_PIN_MOSI, SD_PIN_CS);
+  if (!SD.begin(SD_PIN_CS, hspi)) {
+    Serial.println("SD Card Initialization Failed");
+    return;
+  }
+  delay(50);
+
+  audio.setPinout(AUDIO_PIN_BCLK, AUDIO_PIN_LRC, AUDIO_PIN_DIN);
+
+  WiFi.softAP(ssid, password);
+  WiFi.softAPConfig(local_ip, gateway, subnet);
+  delay(1000);
+
+  server.on("/", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String redirectUrl = "/folder";
+    request->redirect(redirectUrl);
+  });
+
+  server.on("^\\/folder(.*)$", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String currentFolderPath = (request->pathArg(0).isEmpty() ? "/" : sanitizePath(request->pathArg(0)));
+    File root;
+    if (SD.exists(currentFolderPath) && (root = SD.open(currentFolderPath)).isDirectory()) {
+      AsyncResponseStream *response = request->beginResponseStream("text/html");
+      response->print("&lt;html>");
+      response->print("&lt;head>");
+      response->print("&lt;style>");
+      response->print(".message { display: none; color: #ff0000; width: 60%; margin: 0 auto; text-align: center; margin-bottom: 10px; }");
+      response->print("body { font-family: \"Times New Roman\", Times, serif; font-size: 15px; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }");
+      response->print(".location-container { width: 60%;  margin: 0 auto; margin-bottom: 10px; }");
+      response->print(".location-container a { text-decoration: none; color: #0077cc; }");
+      response->print(".table-container { height: 500px; overflow: auto; margin-bottom: 10px; }");
+      response->print("button { font-family: \"Times New Roman\", Times, serif; font-size: 15px; background-color: #4caf50; color: #fff; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 3px; }");
+      response->print(".table-folder { text-decoration: none; color: inherit; }");
+      response->print(".table-file { border: none; background: none; padding: 0; color: #000; font-family: \"Times New Roman\", Times, serif; font-size: 15px; cursor: pointer; }");
+      response->print("table { width: 60%; margin: 0 auto; font-family: \"Times New Roman\", Times, serif; font-size: 15px; }");
+      response->print("table, td { border: 1px solid black; }");
+      response->print("td { padding: 8px; text-align: left; }");
+      response->print(".upload-create-container { text-align: center; }");
+      response->print(".upload-file, .create-folder { display: inline-block; }");
+      response->print("input[type=\"file\"] { border: 1px solid #ccc; padding: 5px; border-radius: 3px; }");
+      response->print("input[type=\"submit\"] { font-family: \"Times New Roman\", Times, serif; font-size: 15px; background-color: #4caf50; color: #fff; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 3px; }");
+      response->print(".overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 1; }");
+      response->print(".modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(255, 255, 255, 0.8); padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); z-index: 1; }");
+      response->print(".modal-content { text-align: center; }");
+      response->print(".modal-error-message { display: none; color: #ff0000; }");
+      response->print(".close { position: absolute; top: 10px; right: 15px; cursor: pointer; font-size: 24px; }");
+      response->print("input[type=\"text\"] { border: 1px solid #ccc; padding: 5px; border-radius: 3px; }");
+      response->print("input[type=\"text\"]:focus { outline: none; }");
+      response->print(".song-container { text-align: center; }");
+      response->print(".song-name, .song-play-pause, .song-loop, .song-slider, .song-volume { display: inline-block; }");
+      response->print(".song-slider, .song-volume { vertical-align: middle; }");
+      response->print(".song-name { font-weight: bold; }");
+      response->print("&lt;/style>");
+      response->print("&lt;/head>");
+      response->print("&lt;body>");
+      response->print("&lt;p id=\"message\" class=\"message\">&lt;/p>");
+      response->print("&lt;div class=\"upload-create-container\">");
+      response->print("&lt;div class=\"upload-file\">");
+      response->print("&lt;form id='uploadForm' method='POST' action='/upload' enctype='multipart/form-data'>");
+      response->print("&lt;input id='uploadFileInput' onchange='updateAction()' type='file' name='file' accept='.mp3'>");
+      response->print("&lt;input type='submit' value='Upload'>");
+      response->print("&lt;/form>");
+      response->print("&lt;/div>");
+      response->print("&lt;div class=\"create-folder\">");
+      response->print("&lt;button type=\"button\" onclick=\"openCreateModal()\">Create Folder&lt;/button>");
+      response->print("&lt;/div>");
+      response->print("&lt;/div>");
+      String folderPath = "/folder";
+      String folderName = "Home";
+      response->print("&lt;div class=\"location-container\">");
+      response->print("&lt;a href=\"" + folderPath + "\">" + folderName + "&lt;/a>");
+      if (currentFolderPath != "/") {
+        int slashIndex = 1;
+        int previousSlashIndex = 1;
+        while ((slashIndex = currentFolderPath.indexOf("/", slashIndex)) != -1) {
+          folderName = currentFolderPath.substring(previousSlashIndex, slashIndex);
+          folderPath = folderPath + "/" + folderName;
+          response->print("&lt;span>/&lt;/span>");
+          response->print("&lt;a href=\"" + folderPath + "\">" + folderName + "&lt;/a>");
+          slashIndex++;
+          previousSlashIndex = slashIndex;
+        }
+        folderName = currentFolderPath.substring(previousSlashIndex);
+        folderPath = folderPath + "/" + folderName;
+        response->print("&lt;span>/&lt;/span>");
+        response->print("&lt;a href=\"" + folderPath + "\">" + folderName + "&lt;/a>");
+      }
+      response->print("&lt;/div>");
+      response->print("&lt;div class='table-container'>");
+      response->print("&lt;table>");
+      File file;
+      while (file = root.openNextFile()) {
+        if (file.isDirectory() || toLowerCase(extractFileExtension(String(file.name()))) == ".mp3") {
+          response->print("&lt;tr>");
+          if (file.isDirectory()) {
+            response->print("&lt;td>&lt;a class='table-folder' href='/folder" + (currentFolderPath == "/" ? "" : currentFolderPath) + "/" + String(file.name()) + "'>&amp;#x1F4C1; " + String(file.name()) + "&lt;/a>&lt;/td>");
+            response->print("&lt;td>&lt;/td>");
+          }
+          else {
+            response->print("&lt;td>&lt;button class='table-file' type='button' onclick=\"playFile('" + (currentFolderPath == "/" ? "" : currentFolderPath) + "/" + String(file.name()) + "')\">&amp;#x1F4C4; " + String(file.name()) + "&lt;/button>&lt;/td>");
+            response->print("&lt;td>" + formatFileSize(file.size()) + "&lt;/td>");
+          }
+          response->print("&lt;td>");
+          response->print("&lt;button class='table-action-button' type=\"button\" onclick=\"openDeleteModal('" + (currentFolderPath == "/" ? "" : currentFolderPath) + "/" + String(file.name()) + "')\">Delete&lt;/button>");
+          response->print("&lt;button class='table-action-button' type=\"button\" onclick=\"openRenameModal('" + (currentFolderPath == "/" ? "" : currentFolderPath) + "/" + String(file.name()) + "', '" + String(file.name()) + "')\">Rename&lt;/button>");
+          response->print("&lt;/td>");
+          response->print("&lt;/tr>");
+        }
+        file.close();
+      }
+      root.close();
+      response->print("&lt;/table>");
+      response->print("&lt;/div>");
+      if (!audioFilePaths.empty()) {
+        response->print("&lt;div class=\"song-container\">");
+        response->print("&lt;div class=\"song-name\">");
+        response->print("&lt;p>" + extractFileNameWithExtension(audioFilePaths[audioIndex]) + "&lt;/p>");
+        response->print("&lt;/div>");
+        response->print("&lt;div class=\"song-play-pause\">");
+        response->print("&lt;form method='POST' action='/playPause'>");
+        response->print("&lt;input type='submit' value='" + String(audioRunning ? "Pause" : "Play") + "'>");
+        response->print("&lt;/form>");
+        response->print("&lt;/div>");
+        response->print("&lt;div class=\"song-loop\">");
+        response->print("&lt;form method='POST' action='/loop'>");
+        response->print("&lt;input type='submit' value='Loop'>");
+        response->print("&lt;/form>");
+        response->print("&lt;/div>");
+        response->print("&lt;div class=\"song-slider\">");
+        response->print("&lt;input id='volumeSlider' type='range' min='0' max='21' value='" + String(audioVolume) + "'>");
+        response->print("&lt;/div>");
+        response->print("&lt;div class=\"song-volume\">");
+        response->print("&lt;span id='volume'>" + String(audioVolume) + "&lt;/span>");
+        response->print("&lt;/div>");
+        response->print("&lt;/div>");
+      }
+      response->print("&lt;div id=\"overlay\" class=\"overlay\">&lt;/div>");
+      response->print("&lt;div id=\"renameModal\" class=\"modal\">");
+      response->print("&lt;div class=\"modal-content\">");
+      response->print("&lt;span class=\"close\" onclick=\"closeRenameModal()\">&amp;times;&lt;/span>");
+      response->print("&lt;h3>Rename&lt;/h3>");
+      response->print("&lt;p class=\"modal-error-message\" id=\"renameErrorMessage\">&lt;/p>");
+      response->print("&lt;input type=\"hidden\" id=\"renameModalPath\">");
+      response->print("&lt;input type=\"text\" id=\"renameModalNewName\" placeholder=\"New Name\">");
+      response->print("&lt;button onclick=\"rename()\">Rename&lt;/button>");
+      response->print("&lt;/div>");
+      response->print("&lt;/div>");
+      response->print("&lt;div id=\"createModal\" class=\"modal\">");
+      response->print("&lt;div class=\"modal-content\">");
+      response->print("&lt;span class=\"close\" onclick=\"closeCreateModal()\">&amp;times;&lt;/span>");
+      response->print("&lt;h3>Create Folder&lt;/h3>");
+      response->print("&lt;p class=\"modal-error-message\" id=\"createErrorMessage\">&lt;/p>");
+      response->print("&lt;input type=\"text\" id=\"createModalName\" placeholder=\"Folder Name\">");
+      response->print("&lt;button onclick=\"createFolder()\">Create&lt;/button>");
+      response->print("&lt;/div>");
+      response->print("&lt;/div>");
+      response->print("&lt;div id=\"deleteModal\" class=\"modal\">");
+      response->print("&lt;div class=\"modal-content\">");
+      response->print("&lt;span class=\"close\" onclick=\"closeDeleteModal()\">&amp;times;&lt;/span>");
+      response->print("&lt;h3>Are you sure you want to delete this item?&lt;/h3>");
+      response->print("&lt;input type=\"hidden\" id=\"deleteModalPath\">");
+      response->print("&lt;button onclick=\"deleteItem()\">Delete&lt;/button>");
+      response->print("&lt;/div>");
+      response->print("&lt;/div>");
+      response->print("&lt;script>");
+      response->print("const processCookie = (cookieName) => {");
+      response->print("const cookieMap = new Map(document.cookie.split(\"; \").map(cookie => cookie.split('=')));");
+      response->print("const cookieValue = cookieMap.get(cookieName);");
+      response->print("if (cookieValue) {");
+      response->print("document.getElementById(cookieName).textContent = decodeURIComponent(cookieValue);");
+      response->print("document.cookie = cookieName + \"=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=" + encodeSpecialCharacters(request->url()) + "\";");
+      response->print("document.getElementById(cookieName).style.display = 'block';");
+      response->print("}");
+      response->print("};");
+      response->print("processCookie(\"message\");");
+      response->print("function openRenameModal(path, name) {");
+      response->print("document.getElementById('renameModalPath').value = path;");
+      response->print("document.getElementById('renameModalNewName').value = name;");
+      response->print("document.getElementById('renameErrorMessage').style.display = 'none';");
+      response->print("document.getElementById('renameModal').style.display = 'block';");
+      response->print("document.getElementById('overlay').style.display = 'block';");
+      response->print("};");
+      response->print("function closeRenameModal() {");
+      response->print("document.getElementById('renameModal').style.display = 'none';");
+      response->print("document.getElementById('overlay').style.display = 'none';");
+      response->print("};");
+      response->print("function rename() {");
+      response->print("var path = document.getElementById('renameModalPath').value;");
+      response->print("var newName = document.getElementById('renameModalNewName').value;");
+      response->print("var errorMessage = '';");
+      response->print("if (newName) {");
+      response->print("if (!/^[ ]/.test(newName)) {");
+      response->print("if (!/[\\/\\\\:*?\"&lt;>|+#%;&]/.test(newName)) {");
+      response->print("var form = document.createElement('form');");
+      response->print("form.method = 'POST';");
+      response->print("form.action = '/rename';");
+      response->print("var inputPath = document.createElement('input');");
+      response->print("inputPath.type = 'hidden';");
+      response->print("inputPath.name = 'path';");
+      response->print("inputPath.value = path;");
+      response->print("form.appendChild(inputPath);");
+      response->print("var inputNewName = document.createElement('input');");
+      response->print("inputNewName.type = 'hidden';");
+      response->print("inputNewName.name = 'newName';");
+      response->print("inputNewName.value = newName;");
+      response->print("form.appendChild(inputNewName);");
+      response->print("document.body.appendChild(form);");
+      response->print("document.getElementById('renameModal').style.display = 'none';");
+      response->print("document.getElementById('overlay').style.display = 'none';");
+      response->print("form.submit();");
+      response->print("}");
+      response->print("else {");
+      response->print("errorMessage = 'Folder name must not contain /, \\, :, *, ?, \", &lt;, >, |, +, #, %, ;, and & special characters.';");
+      response->print("}");
+      response->print("}");
+      response->print("else {");
+      response->print("errorMessage = 'Must Not Start With Space';");
+      response->print("}");
+      response->print("}");
+      response->print("else {");
+      response->print("errorMessage = 'Empty New Name';");
+      response->print("}");
+      response->print("if (errorMessage != '') {");
+      response->print("document.getElementById('renameErrorMessage').textContent = errorMessage;");
+      response->print("document.getElementById('renameErrorMessage').style.display = 'block';");
+      response->print("}");
+      response->print("};");
+      response->print("function openCreateModal() {");
+      response->print("document.getElementById('createErrorMessage').style.display = 'none';");
+      response->print("document.getElementById('createModal').style.display = 'block';");
+      response->print("document.getElementById('overlay').style.display = 'block';");
+      response->print("};");
+      response->print("function closeCreateModal() {");
+      response->print("document.getElementById('createModal').style.display = 'none';");
+      response->print("document.getElementById('overlay').style.display = 'none';");
+      response->print("};");
+      response->print("function createFolder() {");
+      response->print("var name = document.getElementById('createModalName').value;");
+      response->print("var errorMessage = '';");
+      response->print("if (name) {");
+      response->print("if (!/^[ ]/.test(name)) {");
+      response->print("if (!/[\\/\\\\:*?\"&lt;>|+#%;&]/.test(name)) {");
+      response->print("var form = document.createElement('form');");
+      response->print("form.method = 'POST';");
+      response->print("form.action = '/create';");
+      response->print("var inputFolder = document.createElement('input');");
+      response->print("inputFolder.type = 'hidden';");
+      response->print("inputFolder.name = 'folder';");
+      response->print("inputFolder.value = '" + currentFolderPath + "';");
+      response->print("form.appendChild(inputFolder);");
+      response->print("var inputName = document.createElement('input');");
+      response->print("inputName.type = 'hidden';");
+      response->print("inputName.name = 'name';");
+      response->print("inputName.value = name;");
+      response->print("form.appendChild(inputName);");
+      response->print("document.body.appendChild(form);");
+      response->print("document.getElementById('createModal').style.display = 'none';");
+      response->print("document.getElementById('overlay').style.display = 'none';");
+      response->print("form.submit();");
+      response->print("}");
+      response->print("else {");
+      response->print("errorMessage = 'Folder name must not contain /, \\, :, *, ?, \", &lt;, >, |, +, #, %, ;, and & special characters.';");
+      response->print("}");
+      response->print("}");
+      response->print("else {");
+      response->print("errorMessage = 'Must Not Start With Space';");
+      response->print("}");
+      response->print("}");
+      response->print("else {");
+      response->print("errorMessage = 'Empty Folder Name';");
+      response->print("}");
+      response->print("if (errorMessage != '') {");
+      response->print("document.getElementById('createErrorMessage').textContent = errorMessage;");
+      response->print("document.getElementById('createErrorMessage').style.display = 'block';");
+      response->print("}");
+      response->print("};");
+      response->print("function openDeleteModal(path) {");
+      response->print("document.getElementById('deleteModalPath').value = path;");
+      response->print("document.getElementById('deleteModal').style.display = 'block';");
+      response->print("document.getElementById('overlay').style.display = 'block';");
+      response->print("};");
+      response->print("function closeDeleteModal() {");
+      response->print("document.getElementById('deleteModal').style.display = 'none';");
+      response->print("document.getElementById('overlay').style.display = 'none';");
+      response->print("};");
+      response->print("function deleteItem() {");
+      response->print("var path = document.getElementById('deleteModalPath').value;");
+      response->print("var form = document.createElement('form');");
+      response->print("form.method = 'POST';");
+      response->print("form.action = '/delete';");
+      response->print("var inputPath = document.createElement('input');");
+      response->print("inputPath.type = 'hidden';");
+      response->print("inputPath.name = 'path';");
+      response->print("inputPath.value = path;");
+      response->print("form.appendChild(inputPath);");
+      response->print("document.body.appendChild(form);");
+      response->print("document.getElementById('deleteModal').style.display = 'none';");
+      response->print("document.getElementById('overlay').style.display = 'none';");
+      response->print("form.submit();");
+      response->print("};");
+      if (!audioFilePaths.empty()) {
+        response->print("var volumeSlider = document.getElementById('volumeSlider');");
+        response->print("var volume = document.getElementById('volume');");
+        response->print("volumeSlider.addEventListener('input', function() {");
+        response->print("volume.textContent = volumeSlider.value;");
+        response->print("});");
+        response->print("volumeSlider.addEventListener('mouseup', function() {");      
+        response->print("var form = document.createElement('form');");
+        response->print("form.method = 'POST';");
+        response->print("form.action = '/volume';");
+        response->print("var inputVolume = document.createElement('input');");
+        response->print("inputVolume.type = 'hidden';");
+        response->print("inputVolume.name = 'volume';");
+        response->print("inputVolume.value = volumeSlider.value;");
+        response->print("form.appendChild(inputVolume);");
+        response->print("document.body.appendChild(form);");
+        response->print("form.submit();");
+        response->print("});");
+      }
+      response->print("function playFile(file) {");
+      response->print("var form = document.createElement('form');");
+      response->print("form.method = 'POST';");
+      response->print("form.action = '/file';");
+      response->print("var inputFile = document.createElement('input');");
+      response->print("inputFile.type = 'hidden';");
+      response->print("inputFile.name = 'file';");
+      response->print("inputFile.value = file;");
+      response->print("form.appendChild(inputFile);");
+      response->print("document.body.appendChild(form);");
+      response->print("form.submit();");
+      response->print("};");
+      response->print("function updateAction() {");
+      response->print("var form = document.getElementById('uploadForm');");
+      response->print("var fileInput = document.getElementById('uploadFileInput');");
+      response->print("var filename = fileInput.files[0] ? fileInput.files[0].name : '';");
+      response->print("form.action = '/upload?folder=" + currentFolderPath + "&filename=' + encodeURIComponent(filename);");
+      response->print("}");
+      response->print("&lt;/script>");
+      response->print("&lt;/body>");
+      response->print("&lt;/html>");
+      request->send(response);
+    }
+    else {
+      AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+      AsyncWebHeader* refererHeader = request->getHeader("Referer");
+      String redirectUrl = "/folder";
+      if (refererHeader) {
+        redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+      }
+      response->addHeader("Location", redirectUrl);
+      String message = "Folder Not Found";
+      response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+      request->send(response);
+    }
+  });
+
+  server.on("/delete", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (request->hasParam("path", true)) {
+      String path = request->getParam("path", true)->value();
+      if (!path.isEmpty() && SD.exists(path)) {
+        if (SD.open(path).isDirectory()) {
+          if (SD.rmdir(path)) {
+            message = "Folder Deletion Successful";
+          }
+          else {
+            message = "Folder Deletion Failed";
+          }
+        } else {
+          if (toLowerCase(extractFileExtension(path)) == ".mp3") {
+            if (!audioFilePaths.empty() && extractFolderPath(audioFilePaths[0]) == extractFolderPath(path)) {
+              if (audioFilePaths[audioIndex] == path) {
+                audioFilePaths.erase(std::remove(audioFilePaths.begin(), audioFilePaths.end(), path), audioFilePaths.end());
+                if (!audioFilePaths.empty()) {
+                  audioIndex = (audioIndex + 1) % audioFilePaths.size();
+                  audio.connecttoFS(SD, audioFilePaths[audioIndex].c_str());
+                  if (!audioRunning) {
+                    audio.pauseResume();
+                  }
+                }
+                else {
+                  if (audioRunning) {
+                    audio.stopSong();
+                    audioRunning = false;
+                  }
+                }
+              }
+              else {
+                audioFilePaths.erase(std::remove(audioFilePaths.begin(), audioFilePaths.end(), path), audioFilePaths.end());
+              }
+            }
+            if (SD.remove(path)) {
+              message = "File Deletion Successful";
+            }
+            else {
+              message = "File Deletion Failed";
+            }
+          }
+          else {
+            message = "Not MP3 File";
+          }
+        }
+      }
+      else {
+        message = "Path Not Found";
+      }
+    }
+    else {
+      message = "Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.on("/upload", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (request->hasParam("file", true, true) && request->hasParam("folder") && request->hasParam("filename")) {
+      String folderPath = request->getParam("folder")->value();
+      if (!folderPath.isEmpty() && SD.exists(folderPath) && SD.open(folderPath).isDirectory()) {
+        if (toLowerCase(extractFileExtension(request->getParam("filename")->value())) == ".mp3") {
+          message = "Upload Success";
+        }
+        else {
+          message = "Upload Failed. Not MP3 File";
+        }
+      }
+      else {
+        message = "Upload Failed. Folder Not Found";
+      }
+    }
+    else {
+      message = "Upload Failed. Empty File. Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  }, onUpload);
+
+  server.on("/rename", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (request->hasParam("path", true) && request->hasParam("newName", true)) {
+      String path = request->getParam("path", true)->value();
+      if (!path.isEmpty() && SD.exists(path)) {
+        if (SD.open(path).isDirectory() || toLowerCase(extractFileExtension(path)) == ".mp3") {
+          String newName = request->getParam("newName", true)->value();
+          if (!invalidName(newName)) {
+            path = sanitizePath(path);
+            String folderPath = extractFolderPath(path);
+            if (toLowerCase(extractFileExtension(path)) == ".mp3" && !audioFilePaths.empty() && extractFolderPath(audioFilePaths[0]) == folderPath) {
+              for (int i = 0; i &lt; audioFilePaths.size(); i++) {
+                if (audioFilePaths[i] == path) {
+                  audioFilePaths[i] = folderPath + "/" + newName;
+                }
+              }
+            }
+            if (SD.rename(path, folderPath + "/" + newName)) {
+              message = "Rename Success";
+            }
+            else {
+              message = "Rename Failed";
+            }
+          }
+          else {
+            message = "Invalid Name";
+          }
+        }
+        else {
+          message = "Not MP3 File";
+        }
+      }
+      else {
+        message = "Path Not Found";
+      }
+    }
+    else {
+      message = "Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.on("/create", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (request->hasParam("folder", true) && request->hasParam("name", true)) {
+      String folderPath = request->getParam("folder", true)->value();
+      if (!folderPath.isEmpty() && SD.exists(folderPath) && SD.open(folderPath).isDirectory()) {
+        String folderName = request->getParam("name", true)->value();
+        if (!invalidName(folderName)) {
+          folderPath = sanitizePath(folderPath);
+          if (folderPath != "/") {
+            folderPath = folderPath + "/";
+          }
+          if (SD.mkdir(folderPath + folderName)) {
+            message = "Folder Create Success";
+          }
+          else {
+            message = "Folder Create Failed";
+          }
+        }
+        else {
+          message = "Invalid Name";
+        }
+      }
+      else {
+        message = "Folder Not Found";
+      }
+    }
+    else {
+      message = "Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.on("/file", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (request->hasParam("file", true)) {
+      String filePath = request->getParam("file", true)->value();
+      if (!filePath.isEmpty() && SD.exists(filePath) && !SD.open(filePath).isDirectory()) {
+        if (toLowerCase(extractFileExtension(filePath)) == ".mp3") {
+          if (extractFileNameWithExtension(filePath).indexOf(" UPLOADING") == -1) {
+            audioIndex = 0;
+            audioFilePaths.clear();
+            audioFilePaths.push_back(filePath);
+            String folderPath = extractFolderPath(filePath);
+            if (folderPath.isEmpty()) {
+              folderPath = "/";
+            }
+            File folder = SD.open(folderPath);
+            File file;
+            String fileName;
+            while (file = folder.openNextFile()) {
+              fileName = String(file.name());
+              if (!file.isDirectory() && toLowerCase(extractFileExtension(fileName)) == ".mp3" && fileName != extractFileNameWithExtension(filePath) && fileName.indexOf(" UPLOADING") == -1) {
+                audioFilePaths.push_back((folderPath == "/" ? "" : folderPath) + "/" + fileName);
+              }
+              file.close();
+            }
+            folder.close();
+            audio.connecttoFS(SD, audioFilePaths[audioIndex].c_str());
+            audioRunning = true;
+          }
+          else {
+            message = "File Uploading";
+          }
+        }
+        else {
+          message = "Not MP3 File";
+        }
+      }
+      else {
+        message = "File Not Found";
+      }
+    }
+    else {
+      message = "Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.on("/playPause", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (!audioFilePaths.empty()) {
+      if (audio.isRunning()) {
+        audioRunning = false;
+        audio.pauseResume();
+        message = "Audio Paused";
+      }
+      else {
+        audioRunning = true;
+        audio.pauseResume();
+        message = "Audio Resumed";
+      }
+    }
+    else {
+      message = "Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.on("/loop", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    audioLoop = !audioLoop;
+    String message = "Audio Loop " + String(audioLoop ? "On" : "Off");
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.on("/volume", HTTP_POST, [] (AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(301, "text/plain", "Redirecting...");
+    AsyncWebHeader* refererHeader = request->getHeader("Referer");
+    String redirectUrl = "/folder";
+    if (refererHeader) {
+      redirectUrl = sanitizePath(removeHost(refererHeader->value()));
+    }
+    response->addHeader("Location", redirectUrl);
+    String message;
+    if (request->hasParam("volume", true) && isDigits(request->getParam("volume", true)->value())) {
+      int volume = request->getParam("volume", true)->value().toInt();
+      if (volume >= 0 && volume &lt;= 21) {
+        audioVolume = volume;
+        audio.setVolume(audioVolume);
+      }
+      else {
+        message = "Volume Out Of Range";
+      }
+    }
+    else {
+      message = "Bad Request";
+    }
+    response->addHeader("Set-Cookie", ("message=" + message + "; path=" + redirectUrl));
+    request->send(response);
+  });
+
+  server.begin();
+
+  audio.setVolume(audioVolume);
+}
+
+void loop() {
+  audio.loop();
+}
+						            </code></pre>
+					          </div>
+				        </section>
+				        <hr>
+				        <section class="lg:p-20 md:p-6 sm:p-6 space-y-5" id="prototype_video">
+					          <p class="text-3xl">PROTOTYPE VIDEO:</p>
+                    <iframe class="border border-gray-100 mx-auto rounded w-full" src="https://www.youtube.com/embed/4c1s_t4yDj4" height="480" allowfullscreen></iframe>
+				        </section>
+			      </div>
+			      <div class="lg:p-20 md:py-6 sm:py-6 space-y-10 text-white">
+				        <div class="space-y-5">
+					          <p class="text-4xl">Contact Details</p>
+					          <p class="text-2xl">Please do not hesitate to reach out to me using any of the contact details provided below. Thank you.</p>
+				        </div>
+				        <div class="text-2xl space-y-5">
+          					<p>Mobile Phone: +63 956 209 0805</p>
+          					<p>Email: derickzhou@yahoo.com / derickhuaxian.zhou@benilde.edu.ph</p>
+          					<p>LinkedIn: <a class="hover:no-underline underline" href="https://www.linkedin.com/in/derick-hua-xian-zhou/">https://www.linkedin.com/in/derick-hua-xian-zhou/</a></p>
+				        </div>
+			      </div>
+      			<div class="text-center text-white text-xl">
+      				  <p>© Derick Hua Xian Zhou. All rights reserved.</p>
+      			</div>
+		    </div>
+		    <script src="assets/js/lightbox-plus-jquery.min.js"></script>
+		    <script src="assets/js/main.js"></script>
+	  </body>
+</html>
